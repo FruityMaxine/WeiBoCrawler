@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weibo Crawler Pro</title>
+    <!-- Bootstrap 5 & FontAwesome -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-body: #f5f7fa;        /* 浅灰背景 */
+            --card-bg: #ffffff;        /* 白卡片 */
+            --text-main: #2d3748;      /* 深灰文字 */
+            --border-color: #e2e8f0;   /* 浅边框 */
+            --primary-color: #0d6efd;   /* 科技蓝 */
+            --log-bg: #1a202c;         /* 日志黑底 */
+        }
+
+        body {
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            padding-bottom: 60px;
+        }
+
+        /* 卡片通用样式 */
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
+            transition: box-shadow 0.2s;
+            margin-bottom: 24px;
+        }
+        .card:hover {
+            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.05);
+        }
+
+        .card-header {
+            background-color: white;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+            color: #4a5568;
+            padding: 1rem 1.25rem;
+            border-radius: 12px 12px 0 0 !important;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .section-title {
+            font-size: 0.95rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #718096;
+            margin-bottom: 1rem;
+            font-weight: 700;
+        }
+
+        /* 状态徽章 */
+        .status-badge {
+            font-size: 0.85em;
+            padding: 6px 12px;
+            border-radius: 20px;
+            background: #edf2f7;
+            color: #4a5568;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 500;
+        }
+        .status-badge.active { background-color: #ebf8ff; color: #3182ce; border: 1px solid #bee3f8; }
+        .status-badge.sleeping { background-color: #f0fff4; color: #38a169; border: 1px solid #c6f6d5; }
+        .status-badge.error { background-color: #fff5f5; color: #e53e3e; border: 1px solid #fed7d7; }
+
+        /* 进度条 - 保持高级动画 */
+        .progress-container {
+            height: 24px;
+            background-color: #e2e8f0;
+            border-radius: 12px;
+            overflow: hidden;
+            margin: 15px 0;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
+        }
+        .progress-bar {
+            background-color: var(--primary-color);
+            font-size: 0.75rem;
+            line-height: 24px;
+            font-weight: 600;
+            transition: width 0.6s ease;
+        }
+        .progress-bar.countdown-mode {
+            background-color: #718096; /* 灰色倒计时 */
+        }
+        .progress-bar-animated {
+            background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent);
+            background-size: 1rem 1rem;
+            animation: progress-bar-stripes 1s linear infinite;
+        }
+
+        /* 日志窗口 - 保持黑底高亮，更易读 */
+        .log-window {
+            background-color: var(--log-bg);
+            color: #d4d4d4;
+            font-family: 'JetBrains Mono', monospace;
+            padding: 15px;
+            height: 500px;
+            overflow-y: auto;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .log-entry { margin-bottom: 2px; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; }
+        .log-time { color: #61afef; margin-right: 12px; min-width: 85px; opacity: 0.8; user-select: none; }
+        .log-content { word-break: break-all; }
+        .log-highlight-error { color: #e06c75; font-weight: bold; } /* Red */
+        .log-highlight-success { color: #98c379; } /* Green */
+        .log-highlight-warn { color: #e5c07b; } /* Yellow */
+
+        /* 表单美化 */
+        .form-label { font-weight: 500; font-size: 0.9rem; color: #4a5568; }
+        .form-control, .form-select {
+            border-color: #e2e8f0;
+            font-size: 0.95rem;
+        }
+        .form-control:focus {
+            border-color: #3182ce;
+            box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1);
+        }
+        
+        /* 禁用状态的按钮 */
+        .btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        /* --- 悬浮按钮容器 (修复圆角白边问题) --- */
+        .save-btn-group {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+            /* 关键修改：去掉容器的所有装饰，让它变成纯透明的定位框 */
+            background-color: transparent !important;
+            box-shadow: none !important;
+            border: none !important;
+            padding: 0; /* 确保没有内边距撑大 */
+        }
+
+        /* --- 按钮本体样式 --- */
+        .save-btn-group button {
+            /* 把阴影加在按钮上，这样阴影才会跟着圆角走 */
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2) !important;
+            /* 确保边框完全消除 */
+            border: none;
+            /* 增加一点动效，让它看起来更精致 */
+            transition: all 0.3s ease;
+        }
+
+        /* 鼠标悬停时稍微浮起，阴影加深 */
+        .save-btn-group button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25) !important;
+        }
+        /* --- 专用颜色管理：选中变蓝 (只用于 Write Mode 和 Log Level) --- */
+        
+        /* 1. 选中状态 */
+        .btn-check:checked + .btn-mode-select {
+            background-color: var(--primary-color) !important;
+            border-color: var(--primary-color) !important;
+            color: #fff !important;
+            box-shadow: 0 4px 6px rgba(13, 110, 253, 0.3);
+        }
+
+        /* 2. 悬停状态 */
+        .btn-mode-select:hover {
+            color: var(--primary-color) !important;
+            border-color: var(--primary-color) !important;
+            background-color: rgba(13, 110, 253, 0.05) !important;
+        }
+
+    </style>
+</head>
+<!-- Toast 通知容器 (固定在右下角) -->
+<div class="toast-container position-fixed end-0 p-3" style="z-index: 1055; bottom: 80px;">
+    <div id="liveToast" class="toast align-items-center border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+            <div class="toast-body fw-bold" id="toast-msg">
+                <!-- 消息内容 -->
+            </div>
+            <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+    </div>
+</div>
+<body>
+
+<nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom px-4 py-3 mb-4 sticky-top shadow-sm">
+    <div class="container-fluid">
+        <a class="navbar-brand d-flex align-items-center" href="#">
+            <!-- 使用蜘蛛图标，颜色改为深色 (text-dark) -->
+            <i class="fas fa-spider text-dark fs-3 me-2"></i>
+            <span class="fw-bold text-dark">Weibo Crawler</span>
+            <span class="badge bg-primary ms-2 rounded-pill" style="font-size: 0.7rem;">WebUI</span>
+        </a>
+        <div class="d-flex align-items-center">
+            <span id="connection-status" class="text-secondary small me-3">
+                <i class="fas fa-circle-notch fa-spin me-1"></i>连接中...
+            </span>
+        </div>
+    </div>
+</nav>
+
+<div class="container-fluid px-4">
+    
+    <!-- 第一行：基础配置 + 监控台 -->
+    <div class="row g-4">
+        
+        <!-- 左侧：基础配置 (常用) -->
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    <span><i class="fas fa-sliders-h me-2 text-primary"></i>基础配置</span>
+                    <small class="text-muted">每次运行前检查</small>
+                </div>
+                <div class="card-body">
+                    <form id="basic-form">
+                        <!-- User ID -->
+                        <div class="mb-3">
+                            <label class="form-label">用户 ID 列表</label>
+                            <textarea class="form-control font-monospace bg-light" id="user_id_list_raw" rows="5" placeholder="1234567890 (一行一个)"></textarea>
+                            <div class="form-text" id="user_list_hint">可以直接输入 ID，或配置 .txt 文件路径</div>
+                        </div>
+
+                        <!-- 关键词 -->
+                        <div class="mb-3">
+                            <label class="form-label">关键词过滤 (Query List)</label>
+                            <input type="text" class="form-control" id="query_list_raw" placeholder="例如: 抽奖, 转发 (留空抓取全部)">
+                        </div>
+
+                        <!-- Cookie -->
+                        <div class="mb-3">
+                            <label class="form-label">Cookie (必填)</label>
+                            <textarea class="form-control font-monospace bg-light" id="cookie" rows="10" placeholder="SUB=..."></textarea>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧：控制台 -->
+        <div class="col-lg-8">
+            <div class="card h-100">
+                <div class="card-header bg-dark text-white rounded-top">
+                    <span><i class="fas fa-terminal me-2"></i>运行监控台</span>
+                    <div class="btn-group">
+                        <button id="btn-start" class="btn btn-sm btn-success fw-bold px-3" onclick="startSpider()">
+                            <i class="fas fa-play me-1"></i> 启动任务
+                        </button>
+                        <button id="btn-stop" class="btn btn-sm btn-danger fw-bold px-3" onclick="stopSpider()" disabled>
+                            <i class="fas fa-stop me-1"></i> 停止
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body d-flex flex-column">
+                    <!-- 状态栏 -->
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span id="status-badge" class="status-badge">等待就绪</span>
+                        <span id="progress-text" class="fw-bold text-primary">0%</span>
+                    </div>
+
+                    <!-- 进度条 -->
+                    <div class="progress-container mb-3">
+                        <div id="progress-bar" class="progress-bar" style="width: 0%"></div>
+                    </div>
+
+                    <!-- 验证码弹窗 -->
+                    <div id="captcha-alert" class="alert alert-warning border-2 border-warning shadow-sm mb-3 d-none">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>⚠️ 触发验证码风控</strong>
+                                <div class="small">请在弹出的浏览器中完成验证，然后点击右侧按钮。</div>
+                            </div>
+                            <button class="btn btn-warning text-dark fw-bold" onclick="resolveCaptcha()">
+                                我已验证完成 <i class="fas fa-check"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 日志窗口 -->
+                    <div id="log-window" class="log-window flex-grow-1"></div>
+                    
+                    <div class="d-flex justify-content-between mt-2">
+                        <small class="text-muted"><i class="fas fa-info-circle me-1"></i>日志自动刷新</small>
+                        <button class="btn btn-sm btn-link text-muted text-decoration-none" onclick="document.getElementById('log-window').innerHTML=''">清空日志</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 第二行：高级配置 (全量参数) -->
+    <div class="row mt-2">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header" data-bs-toggle="collapse" data-bs-target="#advanced-panel" style="cursor: pointer;">
+                    <span><i class="fas fa-cogs me-2 text-secondary"></i>高级配置 (Advanced Settings)</span>
+                    <i class="fas fa-chevron-down text-muted"></i>
+                </div>
+                <div id="advanced-panel" class="collapse show">
+                    <div class="card-body">
+                        <form id="advanced-form">
+                            <!-- 第一行：核心参数 (3列布局) -->
+                            <div class="row g-4 border-bottom pb-4 mb-4">
+                                <!-- 1. 爬取范围 -->
+                                <div class="col-lg-4 border-end">
+                                    <div class="section-title">爬取范围</div>
+                                    <div class="mb-3">
+                                        <label class="form-label small text-muted">起始时间</label>
+                                        <div class="btn-group w-100 mb-2 btn-group-sm">
+                                            <input type="radio" class="btn-check" name="date_mode" id="mode_date" checked onclick="toggleDateMode('date')">
+                                            <label class="btn btn-outline-secondary" for="mode_date">指定日期</label>
+                                            <input type="radio" class="btn-check" name="date_mode" id="mode_day" onclick="toggleDateMode('day')">
+                                            <label class="btn btn-outline-secondary" for="mode_day">最近 N 天</label>
+                                        </div>
+                                        <div id="input_group_date">
+                                            <input type="date" class="form-control form-control-sm" id="since_date_picker">
+                                        </div>
+                                        <div id="input_group_day" class="d-none">
+                                            <div class="input-group input-group-sm">
+                                                <input type="number" class="form-control" id="since_date_number" min="1">
+                                                <span class="input-group-text">天</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="row g-2">
+                                        <div class="col-6 mb-3">
+                                            <label class="form-label small text-muted">起始页码</label>
+                                            <input type="number" class="form-control form-control-sm" id="start_page" value="1" min="1">
+                                        </div>
+                                        <div class="col-6 mb-3">
+                                            <label class="form-label small text-muted">每页条数</label>
+                                            <input type="number" class="form-control form-control-sm" id="page_weibo_count" value="10">
+                                        </div>
+                                    </div>
+                                    <div class="mb-1">
+                                         <label class="form-label small text-muted">最大下载数限制</label>
+                                         <div class="input-group input-group-sm mb-1">
+                                            <span class="input-group-text" style="width: 50px;">评论</span>
+                                            <input type="number" class="form-control" id="comment_max_download_count" value="100">
+                                         </div>
+                                         <div class="input-group input-group-sm">
+                                            <span class="input-group-text" style="width: 50px;">转发</span>
+                                            <input type="number" class="form-control" id="repost_max_download_count" value="100">
+                                         </div>
+                                    </div>
+                                </div>
+
+                                <!-- 2. 存储与模式 -->
+                                <div class="col-lg-4 border-end">
+                                    <div class="section-title">存储与模式</div>
+                                    <!-- 日志级别 -->
+                                    <div class="mb-3">
+                                        <label class="form-label small text-muted d-block">日志级别</label>
+                                        <div class="btn-group w-100" role="group">
+                                            <input type="radio" class="btn-check" name="log_lvl" id="log_info" autocomplete="off" checked>
+                                            <label class="btn btn-sm btn-outline-secondary btn-mode-select" for="log_info">INFO (简洁)</label>
+                                            <input type="radio" class="btn-check" name="log_lvl" id="log_debug" autocomplete="off">
+                                            <label class="btn btn-sm btn-outline-secondary btn-mode-select" for="log_debug">DEBUG (详细)</label>
+                                        </div>
+                                    </div>
+                                    <!-- 写入格式 -->
+                                    <div class="mb-3">
+                                        <label class="form-label small text-muted d-block">写入格式</label>
+                                        <div class="btn-group w-100" role="group">
+                                            <input type="checkbox" class="btn-check" id="mode_csv" autocomplete="off">
+                                            <label class="btn btn-sm btn-outline-secondary btn-mode-select" for="mode_csv">CSV</label>
+                                            <input type="checkbox" class="btn-check" id="mode_json" autocomplete="off">
+                                            <label class="btn btn-sm btn-outline-secondary btn-mode-select" for="mode_json">JSON</label>
+                                            <input type="checkbox" class="btn-check" id="mode_sqlite" autocomplete="off">
+                                            <label class="btn btn-sm btn-outline-secondary btn-mode-select" for="mode_sqlite">SQLite</label>
+                                        </div>
+                                        <div class="mt-1">
+                                            <input type="checkbox" class="btn-check" id="mode_mysql" autocomplete="off">
+                                            <label class="btn btn-sm btn-outline-secondary btn-mode-select" for="mode_mysql">MySQL</label>
+                                            <input type="checkbox" class="btn-check" id="mode_mongo" autocomplete="off">
+                                            <label class="btn btn-sm btn-outline-secondary btn-mode-select" for="mode_mongo">MongoDB</label>
+                                        </div>
+                                    </div>
+                                    <!-- 常规开关 -->
+                                    <div class="mb-3">
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="user_id_as_folder_name">
+                                            <label class="form-check-label small">UserID 建文件夹</label>
+                                        </div>
+                                        <div class="form-check form-switch mt-1">
+                                            <input class="form-check-input" type="checkbox" id="remove_html_tag">
+                                            <label class="form-check-label small">移除 HTML 标签</label>
+                                        </div>
+                                        <div class="form-check form-switch mt-1">
+                                            <input class="form-check-input" type="checkbox" id="store_binary_in_sqlite">
+                                            <label class="form-check-label small text-truncate">SQLite 存二进制</label>
+                                        </div>
+                                    </div>
+                                    <!-- 数据库/API 折叠 -->
+                                    <div class="mb-1">
+                                        <a class="text-decoration-none small fw-bold text-secondary" data-bs-toggle="collapse" href="#db-config-details" role="button">
+                                            <i class="fas fa-network-wired me-1"></i> 数据库/API 详细配置 <i class="fas fa-chevron-down ms-1"></i>
+                                        </a>
+                                        <div class="collapse mt-2" id="db-config-details">
+                                            <div class="card card-body bg-light border-0 p-2">
+                                                <div class="mb-2">
+                                                    <label class="form-label small text-muted mb-0 fw-bold">MySQL</label>
+                                                    <div class="input-group input-group-sm mb-1"><input type="text" class="form-control" id="mysql_host" placeholder="Host"><input type="number" class="form-control" id="mysql_port" placeholder="Port" style="max-width: 80px;"></div>
+                                                    <div class="input-group input-group-sm"><input type="text" class="form-control" id="mysql_user" placeholder="User"><input type="password" class="form-control" id="mysql_password" placeholder="Pass"></div>
+                                                </div>
+                                                <div class="mb-2">
+                                                    <label class="form-label small text-muted mb-0 fw-bold">MongoDB URI</label>
+                                                    <input type="text" class="form-control form-control-sm font-monospace" id="mongodb_URI" placeholder="mongodb://...">
+                                                </div>
+                                                <div>
+                                                    <label class="form-label small text-muted mb-0 fw-bold">POST Webhook</label>
+                                                    <input type="text" class="form-control form-control-sm mb-1" id="post_api_url" placeholder="API URL">
+                                                    <input type="password" class="form-control form-control-sm" id="post_api_token" placeholder="Token">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 3. 资源下载控制 -->
+                                <div class="col-lg-4">
+                                    <div class="section-title">资源下载</div>
+                                    <div class="bg-light p-3 rounded border ">
+                                        <div class="mb-3 pb-2 border-bottom">
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox" id="only_crawl_original">
+                                                <label class="form-check-label fw-bold text-primary">仅爬取原创微博</label>
+                                                <div class="form-text small" style="font-size: 0.75rem;">开启后，下方所有“转发”相关下载将无效</div>
+                                            </div>
+                                        </div>
+                                        <div class="row g-2">
+                                            <div class="col-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="original_pic_download"><label class="form-check-label small">原创图片</label></div></div>
+                                            <div class="col-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="retweet_pic_download"><label class="form-check-label small">转发图片</label></div></div>
+                                            <div class="col-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="original_video_download"><label class="form-check-label small">原创视频</label></div></div>
+                                            <div class="col-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="retweet_video_download"><label class="form-check-label small">转发视频</label></div></div>
+                                            <div class="col-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="original_live_photo_download"><label class="form-check-label small">原创Live</label></div></div>
+                                            <div class="col-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="retweet_live_photo_download"><label class="form-check-label small">转发Live</label></div></div>
+                                            <div class="col-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="download_comment"><label class="form-check-label small">评论</label></div></div>
+                                            <div class="col-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="download_repost"><label class="form-check-label small">转发链</label></div></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 第二行：高级增强功能 (独立3列布局) -->
+                            <div class="row g-4">
+                                <!-- A. AI 情感分析 -->
+                                <div class="col-lg-4">
+                                    <div class="card h-100 border-0 shadow-sm bg-light">
+                                        <div class="card-body">
+                                            <div class="d-flex align-items-center mb-3">
+                                                <i class="fas fa-robot text-primary fs-5 me-2"></i>
+                                                <span class="fw-bold text-dark">AI 情感分析 (LLM)</span>
+                                            </div>
+                                            <div class="form-check form-switch mb-3">
+                                                <input class="form-check-input" type="checkbox" id="llm_enable" onchange="toggleInputs('llm_enable', ['llm_api_base', 'llm_api_key', 'llm_model'])">
+                                                <label class="form-check-label fw-bold">启用 AI 分析</label>
+                                            </div>
+                                            <div class="vstack gap-2">
+                                                <input type="text" class="form-control form-control-sm" id="llm_api_base" placeholder="Base URL">
+                                                <input type="password" class="form-control form-control-sm" id="llm_api_key" placeholder="API Key">
+                                                <input type="text" class="form-control form-control-sm" id="llm_model" placeholder="Model ID">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- B. 通知推送 -->
+                                <div class="col-lg-4">
+                                    <div class="card h-100 border-0 shadow-sm bg-light">
+                                        <div class="card-body">
+                                            <div class="d-flex align-items-center mb-3">
+                                                <i class="fas fa-bell text-warning fs-5 me-2"></i>
+                                                <span class="fw-bold text-dark">通知推送</span>
+                                            </div>
+                                            <div class="form-check form-switch mb-3">
+                                                <input class="form-check-input" type="checkbox" id="notify_enable" onchange="toggleInputs('notify_enable', ['notify_push_key'])">
+                                                <label class="form-check-label fw-bold">PushDeer 手机通知</label>
+                                            </div>
+                                            <div>
+                                                <input type="password" class="form-control form-control-sm" id="notify_push_key" placeholder="PushDeer Key">
+                                                <div class="form-text small">任务完成或报错时推送到手机</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- C. Cookie 自检 -->
+                                <div class="col-lg-4">
+                                    <div class="card h-100 border-0 shadow-sm bg-light">
+                                        <div class="card-body">
+                                            <div class="d-flex align-items-center mb-3">
+                                                <i class="fas fa-shield-alt text-success fs-5 me-2"></i>
+                                                <span class="fw-bold text-dark">Cookie 有效性自检</span>
+                                            </div>
+                                            <div class="form-check form-switch mb-3">
+                                                <input class="form-check-input" type="checkbox" id="check_cookie_enable" onchange="toggleInputs('check_cookie_enable', ['check_cookie_text', 'check_cookie_exit'])">
+                                                <label class="form-check-label fw-bold">开启自检</label>
+                                            </div>
+                                            <div class="vstack gap-2">
+                                                <input type="text" class="form-control form-control-sm" id="check_cookie_text" placeholder="验证用关键词 (仅自己可见)">
+                                                <div class="form-check form-switch">
+                                                    <input class="form-check-input" type="checkbox" id="check_cookie_exit">
+                                                    <label class="form-check-label small">检测成功后立即退出 (仅验证)</label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 浮动保存按钮 -->
+<div class="save-btn-group">
+    <button id="btn-save-all" type="button" class="btn btn-primary shadow-lg rounded-pill px-4 py-2 fw-bold" onclick="saveConfig()">
+        <i class="fas fa-save me-2"></i>保存所有配置
+    </button>
+</div>
+
+<!-- Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // --- 全局状态 ---
+    let logEventSource = null;
+    let countdownInterval = null; 
+    let currentTaskLeft = 0;      
+    let isRunningGlobal = false;  // 全局运行状态标记
+
+    document.addEventListener('DOMContentLoaded', function() {
+        loadConfig();
+        initLogStream();
+        setInterval(checkStatus, 5000); 
+    });
+
+    // --- UI 逻辑 ---
+    function toggleDateMode(mode) {
+        if (mode === 'date') {
+            document.getElementById('input_group_date').classList.remove('d-none');
+            document.getElementById('input_group_day').classList.add('d-none');
+        } else {
+            document.getElementById('input_group_date').classList.add('d-none');
+            document.getElementById('input_group_day').classList.remove('d-none');
+        }
+    }
+    // --- 交互逻辑: 开关控制输入框禁用 ---
+    function toggleInputs(switchId, targetIds) {
+        const isEnabled = document.getElementById(switchId).checked;
+        targetIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.disabled = !isEnabled; // 没开就禁用
+                // 视觉变灰 (Bootstrap 样式适配)
+                if (!isEnabled) el.parentElement.classList.add('opacity-50');
+                else el.parentElement.classList.remove('opacity-50');
+            }
+        });
+    }
+
+    // --- 1. 配置加载 (全参数映射) ---
+    function loadConfig() {
+        fetch('/api/config').then(res => res.json()).then(data => {
+            // 基础配置
+            document.getElementById('user_id_list_raw').value = data.user_id_list_raw || '';
+            if (data.user_id_list_mode === 'file') {
+                const hintHtml = `
+                    <span class="text-primary" 
+                          data-bs-toggle="tooltip" 
+                          data-bs-placement="top" 
+                          data-bs-html="true"
+                          title="更改模式请手动打开 config.json<br>删除 user_id_list 内的字段" 
+                          style="cursor: help;">
+                        <i class="fas fa-file-alt"></i> 读取外部文件模式
+                    </span>`;
+                const container = document.getElementById('user_list_hint');
+                container.innerHTML = hintHtml;
+                new bootstrap.Tooltip(container.querySelector('span'));
+            }
+            document.getElementById('query_list_raw').value = data.query_list_raw || '';
+            document.getElementById('cookie').value = data.cookie || '';
+
+            // 日期逻辑
+            const rawDate = data.since_date;
+            if (typeof rawDate === 'number' || (typeof rawDate === 'string' && /^\d+$/.test(rawDate))) {
+                document.getElementById('mode_day').checked = true;
+                document.getElementById('since_date_number').value = rawDate;
+                toggleDateMode('day');
+            } else {
+                document.getElementById('mode_date').checked = true;
+                let dateStr = rawDate ? rawDate.toString().substring(0, 10) : '';
+                document.getElementById('since_date_picker').value = dateStr;
+                toggleDateMode('date');
+            }
+
+            // 写入模式
+            const modes = data.write_mode || [];
+            ['csv', 'json', 'sqlite', 'mysql', 'mongo'].forEach(m => {
+                document.getElementById('mode_' + m).checked = modes.includes(m);
+            });
+            
+            // 日志级别
+            const level = data.logging_level || 'INFO';
+            if (level === 'DEBUG') {
+                document.getElementById('log_debug').checked = true;
+            } else {
+                document.getElementById('log_info').checked = true;
+            }
+
+            // 标量输入框
+            document.getElementById('start_page').value = data.start_page || 1;
+            document.getElementById('page_weibo_count').value = data.page_weibo_count || 10;
+            document.getElementById('comment_max_download_count').value = data.comment_max_download_count || 100;
+            document.getElementById('repost_max_download_count').value = data.repost_max_download_count || 100;
+
+            // 所有开关
+            const switchFields = [
+                'only_crawl_original', 'remove_html_tag', 'user_id_as_folder_name',
+                'store_binary_in_sqlite',
+                'original_pic_download', 'retweet_pic_download',
+                'original_video_download', 'retweet_video_download',
+                'original_live_photo_download', 'retweet_live_photo_download',
+                'download_comment', 'download_repost'
+            ];
+            switchFields.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.checked = (data[id] === 1 || data[id] === true);
+            });
+
+            // 数据库详情
+            const mysql = data.mysql_config || {};
+            document.getElementById('mysql_host').value = mysql.host || 'localhost';
+            document.getElementById('mysql_port').value = mysql.port || 3306;
+            document.getElementById('mysql_user').value = mysql.user || 'root';
+            document.getElementById('mysql_password').value = mysql.password || '';
+            
+            document.getElementById('mongodb_URI').value = data.mongodb_URI || '';
+            
+            const post = data.post_config || {};
+            document.getElementById('post_api_url').value = post.api_url || '';
+            document.getElementById('post_api_token').value = post.api_token || '';
+
+            // LLM
+            const llm = data.llm_config || {};
+            document.getElementById('llm_enable').checked = (llm.enable === 1 || llm.enable === true);
+            document.getElementById('llm_api_base').value = llm.api_base || '';
+            document.getElementById('llm_api_key').value = llm.api_key || '';
+            document.getElementById('llm_model').value = llm.model || '';
+
+            // Notify
+            const notify = data.notify_config || {};
+            document.getElementById('notify_enable').checked = (notify.enable === 1 || notify.enable === true);
+            document.getElementById('notify_push_key').value = notify.push_key || '';
+
+            // Cookie Check
+            const ck = data.cookie_check_config || {};
+            toggleInputs('llm_enable', ['llm_api_base', 'llm_api_key', 'llm_model']);
+            toggleInputs('notify_enable', ['notify_push_key']);
+            toggleInputs('check_cookie_enable', ['check_cookie_text', 'check_cookie_exit']);
+            
+        }); // <--- 关键修改：这就是之前漏掉的闭合符号，现在放在了最后
+    }
+
+    // --- 2. 配置保存 ---
+    function saveConfig() {
+        if (isRunningGlobal) {
+            alert("任务运行中无法修改配置，请先停止任务。");
+            return;
+        }
+
+        const data = {};
+        // 1. 基础配置
+        data.user_id_list_raw = document.getElementById('user_id_list_raw').value;
+        data.query_list_raw = document.getElementById('query_list_raw').value;
+        data.cookie = document.getElementById('cookie').value;
+
+        // 2. 日志级别
+        if (document.getElementById('log_debug').checked) {
+            data.logging_level = 'DEBUG';
+        } else {
+            data.logging_level = 'INFO';
+        }
+
+        // 3. 日期设置
+        if (document.getElementById('mode_day').checked) {
+            data.since_date = parseInt(document.getElementById('since_date_number').value) || 1;
+        } else {
+            data.since_date = document.getElementById('since_date_picker').value || '2020-01-01';
+        }
+
+        // 4. 写入模式
+        const modes = [];
+        ['csv', 'json', 'sqlite', 'mysql', 'mongo'].forEach(m => {
+            if (document.getElementById('mode_' + m).checked) modes.push(m);
+        });
+        data.write_mode = modes;
+
+        // 5. 标量参数
+        data.start_page = parseInt(document.getElementById('start_page').value) || 1;
+        data.page_weibo_count = parseInt(document.getElementById('page_weibo_count').value) || 10;
+        data.comment_max_download_count = parseInt(document.getElementById('comment_max_download_count').value) || 100;
+        data.repost_max_download_count = parseInt(document.getElementById('repost_max_download_count').value) || 100;
+
+        // 6. 基础开关
+        const switchFields = [
+            'only_crawl_original', 'remove_html_tag', 'user_id_as_folder_name',
+            'store_binary_in_sqlite',
+            'original_pic_download', 'retweet_pic_download',
+            'original_video_download', 'retweet_video_download',
+            'original_live_photo_download', 'retweet_live_photo_download',
+            'download_comment', 'download_repost'
+        ];
+        switchFields.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) data[id] = el.checked;
+        });
+
+        // 7. 数据库详情
+        data.mongodb_URI = document.getElementById('mongodb_URI').value;
+        
+        data.mysql_config = {
+            host: document.getElementById('mysql_host').value,
+            port: parseInt(document.getElementById('mysql_port').value) || 3306,
+            user: document.getElementById('mysql_user').value,
+            password: document.getElementById('mysql_password').value,
+            charset: 'utf8mb4'
+        };
+
+        data.post_config = {
+            api_url: document.getElementById('post_api_url').value,
+            api_token: document.getElementById('post_api_token').value
+        };
+
+        // === 8. 新增：LLM 配置 ===
+        data.llm_config = {
+            enable: document.getElementById('llm_enable').checked,
+            api_base: document.getElementById('llm_api_base').value,
+            api_key: document.getElementById('llm_api_key').value,
+            model: document.getElementById('llm_model').value
+        };
+
+        // === 9. 新增：通知配置 ===
+        data.notify_config = {
+            enable: document.getElementById('notify_enable').checked,
+            push_key: document.getElementById('notify_push_key').value
+        };
+
+        // === 10. 新增：Cookie 自检配置 ===
+        data.cookie_check_config = {
+            enable: document.getElementById('check_cookie_enable').checked,
+            exit_after_check: document.getElementById('check_cookie_exit').checked,
+            hidden_weibo_text: document.getElementById('check_cookie_text').value
+        };
+
+        // 发送请求
+        fetch('/api/config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        }).then(res => res.json()).then(res => {
+            if(res.success) {
+                showToast(`<i class="fas fa-check-circle me-2"></i>${res.message}`, 'success');
+                showStatus('配置已保存', 'success');
+            } else {
+                showToast(`<i class="fas fa-exclamation-triangle me-2"></i>${res.message}`, 'error');
+                showStatus('保存失败', 'error');
+            }
+            loadConfig();
+        }).catch(err => {
+            showToast(`<i class="fas fa-bomb me-2"></i>网络错误: ${err}`, 'error');
+        });
+    }
+
+    // --- 3. 控制逻辑 ---
+    function startSpider() {
+        // UI清理
+        document.getElementById('log-window').innerHTML = '';
+        updateProgress(0, '准备启动...');
+        
+        fetch('/api/start', {method: 'POST'}).then(res => res.json()).then(res => {
+            if(res.success) {
+                setRunningState(true);
+                showStatus('正在启动...', 'active');
+            } else {
+                alert(res.message);
+            }
+        });
+    }
+
+    function stopSpider() {
+        if(!confirm('确定强制停止？')) return;
+        fetch('/api/stop', {method: 'POST'}).then(res => res.json()).then(res => {
+            if(res.success) {
+                setRunningState(false);
+                stopCountdown();
+                showStatus('已手动停止', 'error');
+                updateProgress(100, '完成');
+            }
+        });
+    }
+
+    function setRunningState(isRunning) {
+        isRunningGlobal = isRunning;
+        
+        // 按钮状态
+        document.getElementById('btn-start').disabled = isRunning;
+        document.getElementById('btn-stop').disabled = !isRunning;
+        
+        // 保存按钮状态 (关键需求)
+        const saveBtn = document.getElementById('btn-save-all');
+        saveBtn.disabled = isRunning;
+        saveBtn.innerHTML = isRunning ? '<i class="fas fa-lock me-2"></i>运行中锁定' : '<i class="fas fa-save me-2"></i>保存所有配置';
+        
+        // UI 动效
+        if (!isRunning) {
+            document.getElementById('captcha-alert').classList.add('d-none');
+            document.getElementById('progress-bar').classList.remove('progress-bar-animated');
+        } else {
+            document.getElementById('progress-bar').classList.add('progress-bar-animated');
+        }
+    }
+
+    // --- 4. 日志流与逻辑 ---
+    function initLogStream() {
+        if (logEventSource) logEventSource.close();
+        logEventSource = new EventSource('/stream_logs');
+
+        logEventSource.onmessage = function(event) {
+            const line = event.data;
+            if (!line || line === ': heartbeat') return;
+
+            // --- 状态同步 (进程级) ---
+            if (line.includes('[System] 任务已结束')) {
+                setRunningState(false);
+                stopCountdown();
+                showStatus('任务完成', 'success');
+                updateProgress(100, '完成');
+            }
+            if (line.includes('当前没有运行的任务')) return; 
+
+            // --- A. 正常爬取进度 ---
+            const progressMatch = line.match(/@@PROGRESS@@:(\d+)\/(\d+)/);
+            if (progressMatch) {
+                stopCountdown();
+                const current = parseInt(progressMatch[1]);
+                const total = parseInt(progressMatch[2]);
+                const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+                
+                // 恢复蓝色
+                const bar = document.getElementById('progress-bar');
+                bar.classList.remove('bg-secondary', 'progress-bar-striped', 'countdown-mode');
+                bar.classList.add('bg-primary');
+                
+                updateProgress(percent, `正在爬取第 ${current}/${total} 页`);
+                showStatus('正在爬取', 'active');
+                return;
+            }
+
+            // --- B. 下载/存档模式 ---
+            if (line.includes('即将进行') && (line.includes('下载') || line.includes('写入'))) {
+                stopCountdown(); 
+                const bar = document.getElementById('progress-bar');
+                bar.classList.remove('bg-primary', 'countdown-mode');
+                bar.classList.add('bg-secondary', 'progress-bar-striped', 'progress-bar-animated');
+                bar.innerText = '💾 正在分批存档/下载资源...';
+                showStatus('数据存档中', 'sleeping');
+            }
+
+            // --- C. 休眠倒计时 ---
+            const sleepMatch = line.match(/(?:sleep|休眠).*?(\d+).*?(?:秒|s)/i);
+            if (sleepMatch) {
+                const seconds = parseInt(sleepMatch[1]);
+                startSleepCountdown(seconds);
+            }
+
+            // --- D. 验证码 ---
+            if (line.includes('@@CAPTCHA_WAITING@@')) {
+                document.getElementById('captcha-alert').classList.remove('d-none');
+                showStatus('等待验证码', 'error'); 
+            }
+
+            // --- E. 关键词高亮 ---
+            if (line.includes('cookie检查通过')) showStatus('Cookie 有效', 'success');
+            if (line.includes('cookie无效')) showStatus('Cookie 无效', 'error');
+            
+            // --- F. 强制完成识别 (新增：业务级) ---
+            // 只要看到这两个关键词，立刻强制更新 UI 为完成状态，不用等进程慢慢退
+            if (line.includes('微博爬取完成') || line.includes('信息抓取完毕')) {
+                updateProgress(100, '任务完成');
+                showStatus('任务完成', 'success');
+                setRunningState(false); // 强制把按钮变回“启动”
+                stopCountdown();
+            }
+            
+            // --- G. 网络错误/重试状态捕获 (新增) ---
+            // 匹配日志: "请求失败...等待 10 秒后重试" 或 "Session 预热失败"
+            if (line.includes('请求失败') || line.includes('重试') || line.includes('预热失败')) {
+                // 将状态变为红色警告
+                showStatus('网络重试中', 'error');
+                
+                // 将进度条变为红色斜纹，表示警告状态
+                const bar = document.getElementById('progress-bar');
+                bar.classList.remove('bg-primary', 'bg-secondary', 'bg-success');
+                bar.classList.add('bg-danger', 'progress-bar-striped', 'progress-bar-animated');
+                bar.innerText = '⚠️ 网络不稳定，正在重试...';
+            }
+            
+            appendLog(line);
+        };
+        
+        logEventSource.onopen = function() {
+             document.getElementById('connection-status').innerHTML = '<span class="text-success"><i class="fas fa-wifi"></i> 系统已连接</span>';
+        };
+        logEventSource.onerror = function() {
+             document.getElementById('connection-status').innerHTML = '<span class="text-danger"><i class="fas fa-times-circle"></i> 连接中断</span>';
+        };
+    }
+    // --- 5. 辅助功能 ---
+    function startSleepCountdown(seconds) {
+        stopCountdown();
+        currentTaskLeft = seconds;
+        const total = seconds;
+        
+        const bar = document.getElementById('progress-bar');
+        bar.classList.add('countdown-mode', 'bg-secondary');
+        bar.classList.remove('bg-primary');
+        showStatus('防封控休眠', 'sleeping');
+
+        countdownInterval = setInterval(() => {
+            currentTaskLeft--;
+            const percent = (currentTaskLeft / total) * 100;
+            bar.style.width = percent + '%';
+            bar.innerText = `等待唤醒: ${currentTaskLeft}s`;
+            if (currentTaskLeft <= 0) stopCountdown();
+        }, 1000);
+    }
+
+    function stopCountdown() {
+        if (countdownInterval) clearInterval(countdownInterval);
+        const bar = document.getElementById('progress-bar');
+        bar.classList.remove('countdown-mode', 'bg-secondary');
+        bar.classList.add('bg-primary');
+    }
+
+    function updateProgress(percent, text) {
+        const bar = document.getElementById('progress-bar');
+        bar.style.width = percent + '%';
+        bar.innerText = text;
+        document.getElementById('progress-text').innerText = percent + '%';
+    }
+
+    function showStatus(text, type) {
+        const badge = document.getElementById('status-badge');
+        badge.innerText = text;
+        badge.className = 'status-badge ' + type;
+    }
+
+    function appendLog(text) {
+        const win = document.getElementById('log-window');
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        
+        const timeStr = new Date().toLocaleTimeString('zh-CN', {hour12: false});
+        let contentClass = 'log-content';
+        
+        // --- 核心改进：防误触逻辑 ---
+
+        // 1. 定义“数据白名单”特征
+        // 只要日志里包含这些词，说明它是微博正文，避免误判！
+        const isUserContent = (
+            text.includes('内容为') ||       // 匹配: "已获取用户...内容为..."
+            text.includes('微博正文：') ||   // 匹配详细打印模式
+            text.includes('转发部分：') ||
+            text.includes('原创部分：') ||
+            text.includes('话题：') ||
+            text.includes('原始图片url：')
+        );
+
+        if (isUserContent) {
+            // 如果是内容数据，强制使用默认颜色（或者你可以定义一个专用颜色，如浅蓝）
+            // 这里我们什么都不加，保持默认灰白，避免喧宾夺主
+            contentClass = 'log-content'; 
+        } else {
+            // 2. 只有【不是】用户内容时，才进行系统关键词染色
+            
+            // 🔴 错误/失败
+            if (text.includes('Error') || text.includes('失败') || text.includes('无效') || text.includes('Exception') || text.includes('错误') || text.includes('Traceback')|| text.includes('Exit Code:')) { 
+                contentClass += ' log-highlight-error'; 
+            }
+            // 🟢 成功/通过
+            else if (text.includes('成功') || text.includes('完毕') || text.includes('通过') || text.includes('OK') || text.includes('Cookie 有效') || text.includes('即将进行原创微博图片下载')) { 
+                contentClass += ' log-highlight-success'; 
+            }
+            // 🟡 警告/提示
+            else if (text.includes('warning') || text.includes('警告') || text.includes('注意') || text.includes('检测到')) { 
+                contentClass += ' log-highlight-warn'; 
+            }
+        }
+        
+        // 过滤内部暗号
+        const cleanText = text.replace('@@CAPTCHA_WAITING@@', '');
+        
+        entry.innerHTML = `<span class="log-time">[${timeStr}]</span><span class="${contentClass}">${cleanText}</span>`;
+        win.appendChild(entry);
+        
+        if (win.children.length > 500) win.removeChild(win.firstChild);
+        win.scrollTop = win.scrollHeight;
+    }
+
+    function checkStatus() {
+        fetch('/api/status').then(res => res.json()).then(data => {
+            if(data.running && !isRunningGlobal) setRunningState(true);
+            if(!data.running && isRunningGlobal) setRunningState(false);
+        });
+    }
+    
+    function resolveCaptcha() {
+        fetch('/api/captcha_solved', {method: 'POST'}).then(res=>res.json()).then(res=>{
+             if(res.success) {
+                 document.getElementById('captcha-alert').classList.add('d-none');
+                 showStatus('验证提交成功', 'active');
+             }
+        });
+    }
+    // --- Toast 通知系统 ---
+    function showToast(message, type = 'success') {
+        const toastEl = document.getElementById('liveToast');
+        const msgEl = document.getElementById('toast-msg');
+        
+        // 设置消息
+        msgEl.innerHTML = message;
+        
+        // 根据类型设置颜色
+        // 移除旧颜色类
+        toastEl.classList.remove('text-bg-success', 'text-bg-danger', 'text-bg-primary');
+        
+        if (type === 'success') {
+            toastEl.classList.add('text-bg-success'); // 绿底白字
+        } else if (type === 'error') {
+            toastEl.classList.add('text-bg-danger');  // 红底白字
+        } else {
+            toastEl.classList.add('text-bg-primary'); // 蓝底白字
+        }
+        
+        // 初始化并显示 Toast
+        const toast = new bootstrap.Toast(toastEl, { delay: 3000 }); // 3秒后自动消失
+        toast.show();
+    }
+</script>
+
+</body>
+</html>

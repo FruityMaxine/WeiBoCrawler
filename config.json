@@ -32,5 +32,22 @@
     "post_config": {
         "api_url": "https://api.example.com",
         "api_token": ""
+    },
+    "query_list": [],
+    "llm_config": {
+        "enable": false,
+        "api_key": "",
+        "api_base": "",
+        "model": ""
+    },
+    "notify_config": {
+        "enable": false,
+        "push_key": ""
+    },
+    "cookie_check_config": {
+        "enable": false,
+        "hidden_weibo_text": "",
+        "exit_after_check": false
     }
+
 }

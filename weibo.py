@@ -47,6 +47,26 @@ DTFORMAT = "%Y-%m-%dT%H:%M:%S"
 class Weibo(object):
     def __init__(self, config):
         """Weibo类初始化"""
+        
+        # === 核心重构：将 config.json 的配置注入到 const 模块 ===
+        # 1. 注入运行模式
+        # 虽然 config 里没有 explicit mode，但通常由逻辑控制，这里保留默认或扩展
+        # 如果你希望 config.json 控制 overwrite/append，可以在这里加逻辑
+        
+        # 2. 注入通知配置
+        if "notify_config" in config:
+            const.NOTIFY["NOTIFY"] = config["notify_config"].get("enable", False)
+            const.NOTIFY["PUSH_KEY"] = config["notify_config"].get("push_key", "")
+
+        # 3. 注入 Cookie 检查配置
+        if "cookie_check_config" in config:
+            const.CHECK_COOKIE["CHECK"] = config["cookie_check_config"].get("enable", False)
+            const.CHECK_COOKIE["HIDDEN_WEIBO"] = config["cookie_check_config"].get("hidden_weibo_text", "")
+            const.CHECK_COOKIE["EXIT_AFTER_CHECK"] = config["cookie_check_config"].get("exit_after_check", False)
+        
+        # 4. LLM 配置无需注入 const，因为它是传递给 analyzer 的
+        # =======================================================
+        
         self.validate_config(config)
         self.only_crawl_original = config["only_crawl_original"]  # 取值范围为0、1,程序默认值为0,代表要爬取用户的全部微博,1代表只爬取用户的原创微博
         self.remove_html_tag = config[
@@ -143,9 +163,14 @@ class Weibo(object):
         self.post_config = config.get("post_config")  # post_config，可以不填
         self.page_weibo_count = config.get("page_weibo_count")  # page_weibo_count，爬取一页的微博数，默认10页
         
-        # 初始化 LLM 分析器
-        self.llm_analyzer = LLMAnalyzer(config) if config.get("llm_config") else None
-        
+        # 初始化 LLM 分析器 (修复：增加 enable 开关判断)
+        llm_conf = config.get("llm_config", {})
+        # 只有当配置存在，且 enable 为 True 时，才加载分析器
+        if llm_conf and llm_conf.get("enable") is True:
+            self.llm_analyzer = LLMAnalyzer(config)
+        else:
+            self.llm_analyzer = None
+            
         user_id_list = config["user_id_list"]
         requests_session = requests.Session()
         requests_session.cookies.update(core_cookies)
@@ -155,7 +180,14 @@ class Weibo(object):
             # 请求只带 SUB
             # 服务器下发适配 m.weibo.cn 的新指纹
             self.session.get("https://m.weibo.cn", headers=self.headers, timeout=10)
-            logger.info("Session 预热成功，服务器已下发最新指纹。")
+            # === feat: 增加对 SUB 的有效性检查 ===
+            current_sub = self.session.cookies.get('SUB') or core_cookies.get('SUB')
+            
+            if current_sub:
+                logger.info("Session 预热成功，服务器已下发最新指纹。")
+            else:
+                logger.warning("未检测到有效 Cookie (SUB)")
+            # ======================================
             
         except Exception as e:
             #请求失败时，启用备份
@@ -217,8 +249,9 @@ class Weibo(object):
             "download_repost",
         ]
         for argument in argument_list:
-            if config[argument] != 0 and config[argument] != 1:
-                logger.warning("%s值应为0或1,请重新输入", config[argument])
+            # 允许 0, 1, True, False
+            if config[argument] not in [0, 1, True, False]:
+                logger.warning("%s值应为1/0或True/False,请重新输入", config[argument])
                 sys.exit()
 
         # 验证query_list
@@ -310,7 +343,7 @@ class Weibo(object):
 
     def handle_captcha(self, js):
         """
-        处理验证码挑战，提示用户手动完成验证。
+        处理验证码挑战，支持 CLI 输入模式和 Web 文件信号模式。
 
         参数:
             js (dict): API 返回的 JSON 数据。
@@ -326,25 +359,62 @@ class Weibo(object):
             webbrowser.open(captcha_url)
         else:
             logger.warning("检测到可能的验证码挑战，但未提供验证码 URL。请手动检查浏览器并完成验证码验证。")
-            return False
+            # 如果没有URL且在Web模式，只能依赖用户自己发现并处理，或者直接返回False
         
-        logger.info("请在打开的浏览器窗口中完成验证码验证。")
-        while True:
-            try:
-                # 等待用户输入
-                user_input = input("完成验证码后，请输入 'y' 继续，或输入 'q' 退出：").strip().lower()
+        # === 核心修改：判断运行模式 ===
+        # 检查环境变量 WEIBO_WEB_UI_MODE 是否为 '1'
+        if os.environ.get('WEIBO_WEB_UI_MODE') == '1':
+            logger.info("【Web模式】检测到验证码阻塞。")
+            logger.info("请在浏览器完成验证后，在 Web 控制台点击【验证完成】按钮。")
+            
+            # 发送特殊标记给 Web UI，用于前端弹出提示框
+            logger.info("@@CAPTCHA_WAITING@@") 
+            
+            signal_file = "captcha.signal"
+            
+            # 为了防止读取到旧的信号文件，先尝试清理一下
+            if os.path.exists(signal_file):
+                try:
+                    os.remove(signal_file)
+                except OSError:
+                    pass
 
-                if user_input == 'y':
-                    logger.info("用户输入 'y'，继续爬取。")
+            # 进入文件信号量等待循环
+            check_interval = 1  # 1秒检测一次
+            while True:
+                if os.path.exists(signal_file):
+                    logger.info("检测到放行信号文件 (captcha.signal)，继续执行...")
+                    try:
+                        # 消费掉信号文件，防止下次循环误判
+                        os.remove(signal_file)
+                    except Exception as e:
+                        logger.warning(f"删除信号文件失败: {e}")
+                    
+                    # 假定用户点击了按钮就是验证成功了，返回 True 让程序重试
                     return True
-                elif user_input == 'q':
-                    logger.warning("用户选择退出，程序中止。")
-                    sys.exit("用户选择退出，程序中止。")
-                else:
-                    logger.warning("无效输入，请重新输入 'y' 或 'q'。")
-            except EOFError:
-                logger.error("读取用户输入时发生 EOFError，程序退出。")
-                sys.exit("输入流已关闭，程序中止。")
+                
+                # 可以在这里打印 debug 日志，但为了保持 Web 控制台清爽，暂时不打
+                sleep(check_interval)
+
+        else:
+            # === 原始 CLI 模式逻辑 (保持不变) ===
+            logger.info("请在打开的浏览器窗口中完成验证码验证。")
+            while True:
+                try:
+                    # 等待用户输入
+                    user_input = input("完成验证码后，请输入 'y' 继续，或输入 'q' 退出：").strip().lower()
+
+                    if user_input == 'y':
+                        logger.info("用户输入 'y'，继续爬取。")
+                        return True
+                    elif user_input == 'q':
+                        logger.warning("用户选择退出，程序中止。")
+                        sys.exit("用户选择退出，程序中止。")
+                    else:
+                        logger.warning("无效输入，请重新输入 'y' 或 'q'。")
+                except EOFError:
+                    logger.error("读取用户输入时发生 EOFError，程序退出。")
+                    sys.exit("输入流已关闭，程序中止。")
     
     def get_weibo_json(self, page):
         """获取网页中微博json数据"""
@@ -886,7 +956,9 @@ class Weibo(object):
                 if not os.path.isdir(file_dir):
                     os.makedirs(file_dir)
                 
-                for w in tqdm(self.weibo[wrote_count:], desc="Download progress"):
+                # 修改：如果是 Web 模式，禁用 tqdm 动画，防止乱码
+                is_web = os.environ.get('WEIBO_WEB_UI_MODE') == '1'
+                for w in tqdm(self.weibo[wrote_count:], desc="Download progress", disable=is_web):
                     if weibo_type == "retweet":
                         if w.get("retweet"):
                             w = w["retweet"]
@@ -992,12 +1064,17 @@ class Weibo(object):
                 and "int" not in str(type(v))
                 and "list" not in str(type(v))
                 and "long" not in str(type(v))
+                and "dict" not in str(type(v))
             ):
-                weibo[k] = (
-                    v.replace("\u200b", "")
-                    .encode(sys.stdout.encoding, "ignore")
-                    .decode(sys.stdout.encoding)
-                )
+                try:
+                    weibo[k] = (
+                        v.replace("\u200b", "")
+                        .encode(sys.stdout.encoding, "ignore")
+                        .decode(sys.stdout.encoding)
+                    )
+                except AttributeError:
+                    # 如果万一还有其他类型混进来导致 .replace 失败，捕获异常不报错，保持原值
+                    pass
         return weibo
 
     def parse_weibo(self, weibo_info):
@@ -1482,7 +1559,7 @@ class Weibo(object):
                 if const.CHECK_COOKIE["CHECK"] and not const.CHECK_COOKIE["CHECKED"]:
                     logger.warning("经检查，cookie无效，系统退出")
                     if const.NOTIFY["NOTIFY"]:
-                        push_deer("经检查，cookie无效，系统退出")
+                        push_deer(const.NOTIFY["PUSH_KEY"], "经检查，cookie无效，系统退出")
                     sys.exit()
             else:
                 return True
@@ -2309,19 +2386,36 @@ class Weibo(object):
             except UnicodeDecodeError:
                 logger.error("%s文件应为utf-8编码，请先将文件编码转为utf-8再运行程序", user_config_file_path)
                 sys.exit()
+            
             for i, line in enumerate(lines):
-                info = line.split(" ")
+                info = line.strip().split(" ")
                 if len(info) > 0 and info[0].isdigit():
                     if self.user_config["user_id"] == info[0]:
+                        new_name = self.user["screen_name"]
+                        new_date = self.start_date
+                        
+                        # 情况 1: 只有 ID
                         if len(info) == 1:
-                            info.append(self.user["screen_name"])
-                            info.append(self.start_date)
-                        if len(info) == 2:
-                            info.append(self.start_date)
-                        if len(info) > 2:
-                            info[2] = self.start_date
+                            info.append(new_name)
+                            info.append(new_date)
+                        
+                        # 情况 2: ID + ??? (可能是昵称，也可能是手动填的日期)
+                        elif len(info) == 2:
+                            second_part = info[1]
+                            if "T" in second_part or "-" in second_part:
+                                info.insert(1, new_name)
+                                info[2] = new_date # 更新日期
+                            else:
+                                info.append(new_date)
+                        
+                        # 情况 3: ID + 昵称 + 日期 (完整)
+                        elif len(info) > 2:
+                            info[1] = new_name
+                            info[2] = new_date
+                            
                         lines[i] = " ".join(info)
                         break
+                        
         with codecs.open(user_config_file_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
 
@@ -2377,7 +2471,16 @@ class Weibo(object):
                 random_pages = random.randint(1, 5)
                 self.start_date = datetime.now().strftime(DTFORMAT)
                 pages = range(self.start_page, page_count + 1)
-                for page in tqdm(pages, desc="Progress"):
+                # 修改：如果是 Web 模式，禁用 tqdm 动画
+                is_web = os.environ.get('WEIBO_WEB_UI_MODE') == '1'
+                for page in tqdm(pages, desc="Progress", disable=is_web):
+                    # === 新增：Web UI 进度通知 ===
+                    # 如果检测到 Web 模式，打印特殊格式日志：@@PROGRESS@@:当前页/总页数
+                    if os.environ.get('WEIBO_WEB_UI_MODE') == '1':
+                        # 使用 print 确保直接输出到标准输出流，logger 可能会有格式前缀干扰正则匹配
+                        # flush=True 确保不被缓存，前端能立刻收到
+                        print(f"@@PROGRESS@@:{page}/{page_count}", flush=True)
+                    # ===========================
                     is_end = self.get_one_page(page)
                     if is_end:
                         break
@@ -2503,11 +2606,15 @@ def main():
         config = get_config()
         wb = Weibo(config)
         wb.start()  # 爬取微博信息
+        
+        # 修复：传入 PUSH_KEY
         if const.NOTIFY["NOTIFY"]:
-            push_deer("更新了一次微博")
+            push_deer(const.NOTIFY["PUSH_KEY"], "微博爬虫任务已完成")
+            
     except Exception as e:
+        # 修复：传入 PUSH_KEY
         if const.NOTIFY["NOTIFY"]:
-            push_deer("weibo-crawler运行出错，错误为{}".format(e))
+            push_deer(const.NOTIFY["PUSH_KEY"], "weibo-crawler运行出错，错误为{}".format(e))
         logger.exception(e)
 
 
